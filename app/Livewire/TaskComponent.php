@@ -14,6 +14,8 @@ class TaskComponent extends Component
     public $tasks = [];
     public $modal = false;
     public $title;
+    public $deleteModal = false; // <-- Añade esta línea para eliminar
+    public $taskToDeleteId = null; // <-- Añade esta línea para eliminar
     public $description;
     public $taskIdToEdit = null;
     public $isEditMode;
@@ -23,9 +25,35 @@ class TaskComponent extends Component
         $this->getTasks();
     }
 
-    public function deleteModal()
+//Todo para eliminar
+// Método para ABRIR el modal de confirmación
+    public function openDeleteModal($taskId)
     {
-        Task::whereTitle($this->title)->delete();
+        $this->taskToDeleteId = $taskId;
+        $this->deleteModal = true;
+    }
+
+    // Método para CERRAR el modal de confirmación
+    public function closeDeleteModal()
+    {
+        $this->deleteModal = false;
+        $this->taskToDeleteId = null;
+    }
+
+    // Método para CONFIRMAR la eliminación
+    public function confirmDelete()
+    {
+        // Busca la tarea y asegúrate de que pertenece al usuario
+        $task = Task::where('id', $this->taskToDeleteId)
+                    ->where('user_id', Auth::id())
+                    ->first();
+
+        if ($task) {
+            $task->delete();
+            $this->getTasks(); // Refresca la lista
+        }
+
+        $this->closeDeleteModal(); // Cierra el modal
     }
     public function openCreateModal(?task $task = null)
     {

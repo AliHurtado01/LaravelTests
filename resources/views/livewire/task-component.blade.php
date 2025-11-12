@@ -1,8 +1,6 @@
 <section>
 
     <div>
-        <!-- This is an example component -->
-
         <button class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mb-4"
             wire:click="openCreateModal">
             Crear Tarea Nueva
@@ -20,7 +18,7 @@
                                     <th scope="col" class="py-3 px-6">Título</th>
                                     <th scope="col" class="py-3 px-6">Descripción</th>
                                     <th scope="col" class="py-3 px-6"></th>
-                                </tr>
+                                    <th scope="col" class="py-3 px-6"></th> </tr>
                             </thead>
                             <tbody>
                                 @foreach ($tasks as $task)
@@ -33,23 +31,18 @@
                                                 wire:click="openCreateModal({{ $task }})">
                                                 Editar
                                             </button>
-                                        <td class="py-4 px-6">
-                                            <button
+                                        </td> <td class="py-4 px-6"> <button
                                                 class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
-                                                wire:click="deleteModal({{ $task }})">
-                                                Eliminar
+                                                wire:click="openDeleteModal({{ $task->id }})"> Eliminar
                                             </button>
                                         </td>
                                     </tr>
                                 @endforeach
-
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
-
-
             @if ($modal)
                 <div
                     class="fixed left-0 top-0 flex h-full w-full items-center justify-center bg-black bg-opacity-50 py-10">
@@ -72,11 +65,10 @@
                                         @if ($isEditMode == false)
                                             <button type="button"
                                                 class="p-3 bg-black rounded-full text-white w-full font-semibold"
-                                                wire:click="createTask">Crear Tarea</button> @else
+                                                wire:click="saveTask">Crear Tarea</button> @else
                                             <button type="button"
                                                 class="p-3 bg-black rounded-full text-white w-full font-semibold"
-                                                wire:click="createTask">Actualizar Tarea</button> 
-                                        @endif
+                                                wire:click="saveTask">Actualizar Tarea</button> @endif
                                         <button type="button"
                                             class="p-3 bg-gray-500 rounded-full text-white w-full font-semibold mt-2"
                                             wire:click="closeCreateModal">Cancelar</button>
@@ -87,6 +79,30 @@
                     </div>
                 </div>
             @endif
+            @if ($deleteModal)
+                <div
+                    class="fixed left-0 top-0 flex h-full w-full items-center justify-center bg-black bg-opacity-50 py-10">
+                    <div class="max-h-full w-full max-w-xl overflow-y-auto sm:rounded-2xl bg-white">
+                        <div class="w-full">
+                            <div class="m-8 my-20 max-w-[400px] mx-auto">
+                                <div class="mb-8">
+                                    <h1 class="mb-4 text-3xl font-extrabold">Confirmar Eliminación</h1>
+                                    <p class="text-gray-600">¿Estás seguro de que quieres eliminar esta tarea? Esta acción no se puede deshacer.</p>
+                                </div>
+                                <div class="space-y-4">
+                                    <button type="button"
+                                        class="p-3 bg-red-600 rounded-full text-white w-full font-semibold"
+                                        wire:click="confirmDelete">Sí, Eliminar</button>
+                                    <button type="button"
+                                        class="p-3 bg-gray-500 rounded-full text-white w-full font-semibold mt-2"
+                                        wire:click="closeDeleteModal">Cancelar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
         </div>
     </div>
 </section>

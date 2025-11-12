@@ -72,12 +72,10 @@
                                         @if ($isEditMode == false)
                                             <button type="button"
                                                 class="p-3 bg-black rounded-full text-white w-full font-semibold"
-                                                wire:click="createTask">Crear Tarea</button>
-                                        @else
+                                                wire:click="createTask">Crear Tarea</button> @else
                                             <button type="button"
                                                 class="p-3 bg-black rounded-full text-white w-full font-semibold"
-                                                wire:click="createTask">Actualizar Tarea</button>
-                                            
+                                                wire:click="createTask">Actualizar Tarea</button> 
                                         @endif
                                         <button type="button"
                                             class="p-3 bg-gray-500 rounded-full text-white w-full font-semibold mt-2"

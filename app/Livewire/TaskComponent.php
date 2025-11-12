@@ -15,7 +15,7 @@ class TaskComponent extends Component
     public $modal = false;
     public $title;
     public $description;
-
+    public $taskIdToEdit = null;
     public $isEditMode;
 
     public function mount()
@@ -31,28 +31,52 @@ class TaskComponent extends Component
     {
         if ($task) {
             $this->isEditMode = true;
+            $this->taskIdToEdit = $task->id;
             $this->title = $task->title;
             $this->description = $task->description;
-            $this->modal=true;
+            
         } else {
             $this->isEditMode = false;
-            $this->modal=true;
+            $this->reset(['title', 'description', 'taskIdToEdit'])
         }
+        $this->modal = true; // Abre el modal en ambos casos
     }
     public function closeCreateModal()
     {
         $this->modal = false;
+        // Resetea todo al cerrar
+        $this->reset(['title', 'description', 'isEditMode', 'taskIdToEdit']);
     }
 
-    public function createTask()
+// Usar createTask
+    public function createTask() 
     {
-        Task::create([
-            'title' => $this->title,
-            'description' => $this->description,
-            'user_id' => Auth::user()->id,
+        // Buena práctica: añade validación
+        $this->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
         ]);
-        $this->closeCreateModal();
-        $this->getTasks();
+
+        if ($this->isEditMode) {
+            // --- Lógica de ACTUALIZACIÓN ---
+            $task = Task::find($this->taskIdToEdit);
+            if ($task) {
+                $task->update([
+                    'title' => $this->title,
+                    'description' => $this->description,
+                ]);
+            }
+        } else {
+            // --- Lógica de CREACIÓN --- (la que ya tenías)
+            Task::create([
+                'title' => $this->title,
+                'description' => $this->description,
+                'user_id' => Auth::user()->id,
+            ]);
+        }
+
+        $this->closeCreateModal(); // Cierra el modal
+        $this->getTasks(); // Refresca la lista de tareas
     }
     public function getTasks()
     {

@@ -3,115 +3,154 @@
 namespace App\Livewire;
 
 use App\Models\Task;
-use Illuminate\Container\Attributes\Tag;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
-use function Livewire\Volt\title;
 
 class TaskComponent extends Component
 {
     public $tasks = [];
+    
+    // Propiedades para Crear/Editar
     public $modal = false;
     public $title;
-    public $deleteModal = false; // <-- Añade esta línea para eliminar
-    public $taskToDeleteId = null; // <-- Añade esta línea para eliminar
     public $description;
     public $taskIdToEdit = null;
-    public $isEditMode;
+    public $isEditMode = false;
+
+    // Propiedades para Eliminar/Ocultar
+    public $confirmModal = false; // Un solo modal para confirmar acciones
+    public $taskToActId = null;   // ID de la tarea sobre la que actuar
+    public $actionType = '';      // 'delete' o 'hide'
 
     public function mount()
     {
         $this->getTasks();
     }
 
-
-// Método para ABRIR el modal de confirmación
-    public function openDeleteModal($taskId)
+    // --- CARGA DE TAREAS ---
+    public function getTasks()
     {
-        $this->taskToDeleteId = $taskId;
-        $this->deleteModal = true;
+        $user = Auth::user();
+        // Tareas propias
+        $userTasks = $user->tasks;
+        // Tareas compartidas
+        $sharedTasks = $user->sharedTasks;
+        
+        // Fusionamos ambas
+        $this->tasks = $sharedTasks->merge($userTasks);
     }
 
-    // Método para CERRAR el modal de confirmación
-    public function closeDeleteModal()
+    // --- MODAL CREAR / EDITAR ---
+    
+    public function openCreateModal(?Task $task = null)
     {
-        $this->deleteModal = false;
-        $this->taskToDeleteId = null;
-    }
+        // Limpiamos errores de validación previos
+        $this->resetValidation();
 
-    // Método para CONFIRMAR la eliminación
-    public function confirmDelete()
-    {
-        // Busca la tarea y asegúrate de que pertenece al usuario
-        $task = Task::where('id', $this->taskToDeleteId)
-                    ->where('user_id', Auth::id())
-                    ->first();
-
-        if ($task) {
-            $task->delete();
-            $this->getTasks(); // Refresca la lista
-        }
-
-        $this->closeDeleteModal(); // Cierra el modal
-    }
-    public function openCreateModal(?task $task = null)
-    {
-        if ($task) {
+        if ($task && $task->exists) {
+            // MODO EDICIÓN
             $this->isEditMode = true;
             $this->taskIdToEdit = $task->id;
             $this->title = $task->title;
             $this->description = $task->description;
-            
         } else {
+            // MODO CREACIÓN
             $this->isEditMode = false;
             $this->reset(['title', 'description', 'taskIdToEdit']);
         }
-        $this->modal = true; // Abre el modal en ambos casos
+        $this->modal = true;
     }
+
     public function closeCreateModal()
     {
         $this->modal = false;
-        // Resetea todo al cerrar
-        $this->reset(['title', 'description', 'isEditMode', 'taskIdToEdit']);
+        $this->reset(['title', 'description', 'taskIdToEdit', 'isEditMode']);
     }
 
-// Usar createTask
-    public function createTask() 
+    public function saveTask() 
     {
-        // Buena práctica: añade validación
         $this->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
         ]);
 
         if ($this->isEditMode) {
-            // --- Lógica de ACTUALIZACIÓN ---
+            // --- ACTUALIZAR ---
             $task = Task::find($this->taskIdToEdit);
+            
+            // Comprobamos si existe y si tiene permiso (dueño O editor)
             if ($task) {
-                $task->update([
-                    'title' => $this->title,
-                    'description' => $this->description,
-                ]);
+                $esDueno = $task->user_id === Auth::id();
+                $esEditor = Auth::user()->sharedTasks()
+                                ->where('task_id', $task->id)
+                                ->wherePivot('permission', 'edit') // Solo si es editor
+                                ->exists();
+
+                if ($esDueno || $esEditor) {
+                    $task->update([
+                        'title' => $this->title,
+                        'description' => $this->description,
+                    ]);
+                }
             }
         } else {
-            // --- Lógica de CREACIÓN --- (la que ya tenías)
+            // --- CREAR ---
             Task::create([
                 'title' => $this->title,
                 'description' => $this->description,
-                'user_id' => Auth::user()->id,
+                'user_id' => Auth::id(),
             ]);
         }
 
-        $this->closeCreateModal(); // Cierra el modal
-        $this->getTasks(); // Refresca la lista de tareas
+        $this->closeCreateModal();
+        $this->getTasks();
     }
-    public function getTasks()
+
+    // --- MODAL ELIMINAR / OCULTAR ---
+
+    // Abrir modal para ELIMINAR (Solo dueños)
+    public function openDeleteModal($taskId)
     {
-        $user = Auth::User();
-        $userTasks = $user->tasks;
-        $sharedTasks = $user->sharedTasks;
-        $this->tasks = $sharedTasks->merge($userTasks);
+        $this->taskToActId = $taskId;
+        $this->actionType = 'delete'; // Marcamos que vamos a borrar
+        $this->confirmModal = true;
+    }
+
+    // Abrir modal para OCULTAR (Usuarios compartidos)
+    public function openHideModal($taskId)
+    {
+        $this->taskToActId = $taskId;
+        $this->actionType = 'hide';   // Marcamos que vamos a ocultar
+        $this->confirmModal = true;
+    }
+
+    public function closeConfirmModal()
+    {
+        $this->confirmModal = false;
+        $this->reset(['taskToActId', 'actionType']);
+    }
+
+    // Ejecutar la acción confirmada
+    public function executeAction()
+    {
+        if ($this->actionType === 'delete') {
+            // Borrado físico (Solo dueño)
+            $task = Task::where('id', $this->taskToActId)
+                        ->where('user_id', Auth::id())
+                        ->first();
+            if ($task) {
+                $task->delete();
+            }
+
+        } elseif ($this->actionType === 'hide') {
+            // Ocultar: Quitar relación de la tabla pivote (detach)
+            // Esto hace que el usuario deje de ver la tarea, pero no la borra
+            Auth::user()->sharedTasks()->detach($this->taskToActId);
+        }
+
+        $this->getTasks();
+        $this->closeConfirmModal();
     }
 
     public function render()

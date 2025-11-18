@@ -25,7 +25,7 @@ class TaskComponent extends Component
         $this->getTasks();
     }
 
-//Todo para eliminar
+
 // Método para ABRIR el modal de confirmación
     public function openDeleteModal($taskId)
     {
@@ -65,7 +65,7 @@ class TaskComponent extends Component
             
         } else {
             $this->isEditMode = false;
-            $this->reset(['title', 'description', 'taskIdToEdit'])
+            $this->reset(['title', 'description', 'taskIdToEdit']);
         }
         $this->modal = true; // Abre el modal en ambos casos
     }
@@ -109,7 +109,9 @@ class TaskComponent extends Component
     public function getTasks()
     {
         $user = Auth::User();
-        $this->tasks = $user->tasks;
+        $userTasks = $user->tasks;
+        $sharedTasks = $user->sharedTasks;
+        $this->tasks = $sharedTasks->merge($userTasks);
     }
 
     public function render()

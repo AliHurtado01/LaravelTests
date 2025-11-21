@@ -16,21 +16,16 @@
                                     <th scope="col" class="py-3 px-6">Título</th>
                                     <th scope="col" class="py-3 px-6">Descripción</th>
                                     <th scope="col" class="py-3 px-6">Acciones</th>
-                                    <th scope="col" class="py-3 px-6"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach ($tasks as $task)
-                                    {{-- LÓGICA DE PERMISOS --}}
                                     @php
                                         $esDueno = $task->user_id === auth()->id();
-                                        // Obtenemos el permiso de la tabla pivote (si existe)
                                         $permiso = optional($task->pivot)->permission; 
                                         
-                                        // Reglas de visualización
                                         $puedeEditar = $esDueno || $permiso === 'edit';
                                         $puedeEliminar = $esDueno;
-                                        // Si no es dueño, puede ocultar (si es compartida)
                                         $puedeOcultar = !$esDueno; 
                                     @endphp
 
@@ -38,8 +33,10 @@
                                         <td class="py-4 px-6">{{ $task->title }}</td>
                                         <td class="py-4 px-6">{{ $task->description }}</td>
                                         
-                                        {{-- Columna Editar --}}
-                                        <td class="py-4 px-6">
+                                        {{-- Columna Acciones --}}
+                                        <td class="py-4 px-6 flex space-x-2">
+                                            
+                                            {{-- Editar --}}
                                             @if($puedeEditar)
                                                 <button
                                                     class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded"
@@ -47,10 +44,8 @@
                                                     Editar
                                                 </button>
                                             @endif
-                                        </td> 
 
-                                        {{-- Columna Eliminar / Ocultar --}}
-                                        <td class="py-4 px-6"> 
+                                            {{-- Eliminar / Ocultar --}}
                                             @if($puedeEliminar)
                                                 <button
                                                     class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
@@ -64,6 +59,16 @@
                                                     Ocultar
                                                 </button>
                                             @endif
+
+                                            {{-- ESTO ES PARA COMPARTIR (Botón en la tabla) --}}
+                                            @if($esDueno)
+                                                <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                                                    wire:click="openShareModal({{ $task->id }})">
+                                                    Compartir
+                                                </button>
+                                            @endif
+                                            {{-- ----------------------------------------- --}}
+
                                         </td>
                                     </tr>
                                 @endforeach
@@ -73,8 +78,9 @@
                 </div>
             </div>
 
+            {{-- MODAL CREAR/EDITAR --}}
             @if ($modal)
-                <div class="fixed left-0 top-0 flex h-full w-full items-center justify-center bg-black bg-opacity-50 py-10">
+                <div class="fixed left-0 top-0 flex h-full w-full items-center justify-center bg-black bg-opacity-50 py-10 z-40">
                     <div class="max-h-full w-full max-w-xl overflow-y-auto sm:rounded-2xl bg-white">
                         <div class="w-full">
                             <div class="m-8 my-20 max-w-[400px] mx-auto">
@@ -108,8 +114,9 @@
                 </div>
             @endif
 
+            {{-- MODAL CONFIRMAR (ELIMINAR/OCULTAR) --}}
             @if ($confirmModal)
-                <div class="fixed left-0 top-0 flex h-full w-full items-center justify-center bg-black bg-opacity-50 py-10">
+                <div class="fixed left-0 top-0 flex h-full w-full items-center justify-center bg-black bg-opacity-50 py-10 z-50">
                     <div class="max-h-full w-full max-w-xl overflow-y-auto sm:rounded-2xl bg-white">
                         <div class="w-full">
                             <div class="m-8 my-20 max-w-[400px] mx-auto">
@@ -140,6 +147,76 @@
                     </div>
                 </div>
             @endif
+
+            {{-- ESTO ES PARA COMPARTIR (Modal Nuevo) --}}
+            @if ($shareModal)
+            <div class="fixed left-0 top-0 flex h-full w-full items-center justify-center bg-black bg-opacity-50 py-10 z-50">
+                <div class="max-h-full w-full max-w-2xl overflow-y-auto sm:rounded-2xl bg-white p-6">
+                    
+                    <div class="mb-6 border-b pb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">Compartir Tarea</h2>
+                        <p class="text-gray-600">Gestiona quién puede ver o editar: <strong>{{ $taskToShare->title }}</strong></p>
+                    </div>
+
+                    <div class="space-y-4 max-h-[60vh] overflow-y-auto">
+                        {{-- Iteramos sobre todos los usuarios excepto el dueño --}}
+                        @foreach($users as $user)
+                            @php
+                                // Verificamos si el usuario YA tiene la tarea compartida
+                                $isShared = $taskToShare->users->contains($user->id);
+                            @endphp
+
+                            <div class="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+                                
+                                {{-- Nombre del usuario --}}
+                                <div class="flex items-center space-x-3">
+                                    <div class="bg-indigo-100 text-indigo-700 font-bold rounded-full w-10 h-10 flex items-center justify-center">
+                                        {{ substr($user->name, 0, 1) }}
+                                    </div>
+                                    <span class="font-medium text-gray-700">{{ $user->name }}</span>
+                                </div>
+
+                                {{-- Controles --}}
+                                <div class="flex items-center space-x-2">
+                                    
+                                    {{-- Select de Permisos --}}
+                                    <select wire:model="permissions.{{ $user->id }}" 
+                                            class="border-gray-300 rounded-md text-sm shadow-sm p-2"
+                                            @if($isShared) disabled @endif>
+                                        <option value="view">Solo ver</option>
+                                        <option value="edit">Editar</option>
+                                    </select>
+
+                                    @if($isShared)
+                                        {{-- Botón DETACH (Dejar de compartir) --}}
+                                        <button wire:click="unshareTaskWithUser({{ $user->id }})" 
+                                                class="bg-red-100 text-red-600 hover:bg-red-200 px-3 py-2 rounded text-sm font-semibold transition">
+                                            Quitar
+                                        </button>
+                                    @else
+                                        {{-- Botón ATTACH (Compartir) --}}
+                                        <button wire:click="shareTaskWithUser({{ $user->id }})" 
+                                                class="bg-green-500 text-white hover:bg-green-600 px-3 py-2 rounded text-sm font-semibold transition">
+                                            Compartir
+                                        </button>
+                                    @endif
+
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+
+                    <div class="mt-6 flex justify-end border-t pt-4">
+                        <button wire:click="closeShareModal" 
+                                class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-full">
+                            Cerrar
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+            @endif
+            {{-- ------------------------------------ --}}
 
         </div>
     </div>

@@ -3,14 +3,14 @@
 namespace App\Livewire;
 
 use App\Models\Task;
+use App\Models\User; // <--- IMPORTANTE: Necesario para listar usuarios
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
-
 
 class TaskComponent extends Component
 {
     public $tasks = [];
-    
+
     // Propiedades para Crear/Editar
     public $modal = false;
     public $title;
@@ -19,9 +19,17 @@ class TaskComponent extends Component
     public $isEditMode = false;
 
     // Propiedades para Eliminar/Ocultar
-    public $confirmModal = false; // Un solo modal para confirmar acciones
-    public $taskToActId = null;   // ID de la tarea sobre la que actuar
-    public $actionType = '';      // 'delete' o 'hide'
+    public $confirmModal = false;
+    public $taskToActId = null;
+    public $actionType = '';
+
+    // --- ESTO ES PARA COMPARTIR ---
+    // Propiedades para el modal de compartir
+    public $shareModal = false;
+    public $taskToShare = null;   // La tarea que se está compartiendo actualmente
+    public $users = [];           // Lista de todos los usuarios disponibles
+    public $permissions = [];     // Array para guardar el permiso seleccionado (view/edit) por usuario
+    // ------------------------------
 
     public function mount()
     {
@@ -31,21 +39,22 @@ class TaskComponent extends Component
     // --- CARGA DE TAREAS ---
     public function getTasks()
     {
+        /** @var \App\Models\User $user */
         $user = Auth::user();
+
         // Tareas propias
         $userTasks = $user->tasks;
         // Tareas compartidas
         $sharedTasks = $user->sharedTasks;
-        
+
         // Fusionamos ambas
         $this->tasks = $sharedTasks->merge($userTasks);
     }
 
     // --- MODAL CREAR / EDITAR ---
-    
+
     public function openCreateModal(?Task $task = null)
     {
-        // Limpiamos errores de validación previos
         $this->resetValidation();
 
         if ($task && $task->exists) {
@@ -68,7 +77,7 @@ class TaskComponent extends Component
         $this->reset(['title', 'description', 'taskIdToEdit', 'isEditMode']);
     }
 
-    public function saveTask() 
+    public function saveTask()
     {
         $this->validate([
             'title' => 'required|string|max:255',
@@ -76,16 +85,16 @@ class TaskComponent extends Component
         ]);
 
         if ($this->isEditMode) {
-            // --- ACTUALIZAR ---
             $task = Task::find($this->taskIdToEdit);
-            
-            // Comprobamos si existe y si tiene permiso (dueño O editor)
+
             if ($task) {
                 $esDueno = $task->user_id === Auth::id();
-                $esEditor = Auth::user()->sharedTasks()
-                                ->where('task_id', $task->id)
-                                ->wherePivot('permission', 'edit') // Solo si es editor
-                                ->exists();
+                /** @var \App\Models\User $user */
+                $user = Auth::user();
+                $esEditor = $user->sharedTasks()
+                    ->where('task_id', $task->id)
+                    ->wherePivot('permission', 'edit')
+                    ->exists();
 
                 if ($esDueno || $esEditor) {
                     $task->update([
@@ -95,7 +104,6 @@ class TaskComponent extends Component
                 }
             }
         } else {
-            // --- CREAR ---
             Task::create([
                 'title' => $this->title,
                 'description' => $this->description,
@@ -109,19 +117,17 @@ class TaskComponent extends Component
 
     // --- MODAL ELIMINAR / OCULTAR ---
 
-    // Abrir modal para ELIMINAR (Solo dueños)
     public function openDeleteModal($taskId)
     {
         $this->taskToActId = $taskId;
-        $this->actionType = 'delete'; // Marcamos que vamos a borrar
+        $this->actionType = 'delete';
         $this->confirmModal = true;
     }
 
-    // Abrir modal para OCULTAR (Usuarios compartidos)
     public function openHideModal($taskId)
     {
         $this->taskToActId = $taskId;
-        $this->actionType = 'hide';   // Marcamos que vamos a ocultar
+        $this->actionType = 'hide';
         $this->confirmModal = true;
     }
 
@@ -131,27 +137,89 @@ class TaskComponent extends Component
         $this->reset(['taskToActId', 'actionType']);
     }
 
-    // Ejecutar la acción confirmada
     public function executeAction()
     {
         if ($this->actionType === 'delete') {
-            // Borrado físico (Solo dueño)
             $task = Task::where('id', $this->taskToActId)
-                        ->where('user_id', Auth::id())
-                        ->first();
+                ->where('user_id', Auth::id())
+                ->first();
             if ($task) {
                 $task->delete();
             }
-
         } elseif ($this->actionType === 'hide') {
-            // Ocultar: Quitar relación de la tabla pivote (detach)
-            // Esto hace que el usuario deje de ver la tarea, pero no la borra
-            Auth::user()->sharedTasks()->detach($this->taskToActId);
+            /** @var \App\Models\User $user */
+            $user = Auth::user();
+            $user->sharedTasks()->detach($this->taskToActId);
         }
 
         $this->getTasks();
         $this->closeConfirmModal();
     }
+
+    // --- ESTO ES PARA COMPARTIR (Lógica Nueva) ---
+
+    public function openShareModal($taskId)
+    {
+        // Cargamos la tarea y sus usuarios relacionados (para saber quién la tiene ya)
+        $this->taskToShare = Task::with('users')->find($taskId);
+
+        // Seguridad: Solo el dueño puede compartir
+        if ($this->taskToShare->user_id !== Auth::id()) {
+            return;
+        }
+
+        // Obtenemos todos los usuarios MENOS el actual (no tiene sentido compartírtela a ti mismo)
+        $this->users = User::where('id', '!=', Auth::id())->get();
+
+        // Preparamos el array de permisos
+        foreach ($this->users as $user) {
+            // Verificamos si este usuario ya tiene la tarea compartida
+            $existingUser = $this->taskToShare->users->find($user->id);
+
+            if ($existingUser) {
+                // Si ya la tiene, cargamos su permiso actual
+                $this->permissions[$user->id] = $existingUser->pivot->permission;
+            } else {
+                // Si no, permiso por defecto 'view'
+                $this->permissions[$user->id] = 'view';
+            }
+        }
+
+        $this->shareModal = true;
+    }
+
+    public function closeShareModal()
+    {
+        $this->shareModal = false;
+        $this->reset(['taskToShare', 'users', 'permissions']);
+    }
+
+    public function shareTaskWithUser($userId)
+    {
+        // Validamos que el permiso sea válido
+        if (!in_array($this->permissions[$userId], ['view', 'edit'])) {
+            return;
+        }
+
+        // --- USO DE ATTACH ---
+        // Crea la relación en la tabla 'task_user' asignando el permiso seleccionado
+        $this->taskToShare->users()->attach($userId, [
+            'permission' => $this->permissions[$userId]
+        ]);
+
+        // Refrescamos la tarea para que la vista se actualice (el botón cambie a 'Dejar de compartir')
+        $this->taskToShare->refresh();
+    }
+
+    public function unshareTaskWithUser($userId)
+    {
+        // --- USO DE DETACH ---
+        // Elimina la relación de la tabla 'task_user'
+        $this->taskToShare->users()->detach($userId);
+
+        $this->taskToShare->refresh();
+    }
+    // --------------------------------------------
 
     public function render()
     {

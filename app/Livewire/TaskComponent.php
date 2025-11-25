@@ -2,9 +2,11 @@
 
 namespace App\Livewire;
 
+use App\Mail\SharedTask;
 use App\Models\Task;
-use App\Models\User; // <--- IMPORTANTE: Necesario para listar usuarios
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 use Livewire\Component;
 
 class TaskComponent extends Component
@@ -24,11 +26,10 @@ class TaskComponent extends Component
     public $actionType = '';
 
     // --- ESTO ES PARA COMPARTIR ---
-    // Propiedades para el modal de compartir
     public $shareModal = false;
-    public $taskToShare = null;   // La tarea que se está compartiendo actualmente
-    public $users = [];           // Lista de todos los usuarios disponibles
-    public $permissions = [];     // Array para guardar el permiso seleccionado (view/edit) por usuario
+    public $taskToShare = null;
+    public $users = [];
+    public $permissions = [];
     // ------------------------------
 
     public function mount()
@@ -42,12 +43,9 @@ class TaskComponent extends Component
         /** @var \App\Models\User $user */
         $user = Auth::user();
 
-        // Tareas propias
         $userTasks = $user->tasks;
-        // Tareas compartidas
         $sharedTasks = $user->sharedTasks;
 
-        // Fusionamos ambas
         $this->tasks = $sharedTasks->merge($userTasks);
     }
 
@@ -160,27 +158,20 @@ class TaskComponent extends Component
 
     public function openShareModal($taskId)
     {
-        // Cargamos la tarea y sus usuarios relacionados (para saber quién la tiene ya)
         $this->taskToShare = Task::with('users')->find($taskId);
 
-        // Seguridad: Solo el dueño puede compartir
         if ($this->taskToShare->user_id !== Auth::id()) {
             return;
         }
 
-        // Obtenemos todos los usuarios MENOS el actual (no tiene sentido compartírtela a ti mismo)
         $this->users = User::where('id', '!=', Auth::id())->get();
 
-        // Preparamos el array de permisos
         foreach ($this->users as $user) {
-            // Verificamos si este usuario ya tiene la tarea compartida
             $existingUser = $this->taskToShare->users->find($user->id);
 
             if ($existingUser) {
-                // Si ya la tiene, cargamos su permiso actual
                 $this->permissions[$user->id] = $existingUser->pivot->permission;
             } else {
-                // Si no, permiso por defecto 'view'
                 $this->permissions[$user->id] = 'view';
             }
         }
@@ -194,29 +185,34 @@ class TaskComponent extends Component
         $this->reset(['taskToShare', 'users', 'permissions']);
     }
 
+    // --- AQUÍ ESTABA EL ERROR ---
     public function shareTaskWithUser($userId)
     {
-        // Validamos que el permiso sea válido
         if (!in_array($this->permissions[$userId], ['view', 'edit'])) {
             return;
         }
+        
+        // 1. Buscamos al usuario real para tener sus datos (email, nombre)
+        $userToShare = User::find($userId);
 
-        // --- USO DE ATTACH ---
-        // Crea la relación en la tabla 'task_user' asignando el permiso seleccionado
+        if (!$userToShare) {
+            return; // Seguridad por si el usuario no existe
+        }
+
         $this->taskToShare->users()->attach($userId, [
             'permission' => $this->permissions[$userId]
         ]);
 
-        // Refrescamos la tarea para que la vista se actualice (el botón cambie a 'Dejar de compartir')
         $this->taskToShare->refresh();
+
+        // 2. Enviamos el correo usando el objeto $userToShare y la tarea correcta
+        Mail::to($userToShare->email)->send(
+            new SharedTask($this->taskToShare, Auth()->user()));
     }
 
     public function unshareTaskWithUser($userId)
     {
-        // --- USO DE DETACH ---
-        // Elimina la relación de la tabla 'task_user'
         $this->taskToShare->users()->detach($userId);
-
         $this->taskToShare->refresh();
     }
     // --------------------------------------------
